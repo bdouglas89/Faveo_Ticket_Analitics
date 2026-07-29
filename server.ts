@@ -17,6 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 const upload = multer({ storage: multer.memoryStorage() });
 
 let db: Database | null = null;
+let SQL: any = null;
 const DB_FILE = path.join(process.cwd(), "tickets.db");
 
 function saveDb(database: Database) {
@@ -274,17 +275,20 @@ function autoLoadExampleExcel(database: Database) {
 
 // Initialize SQLite database via sql.js
 async function getDb(): Promise<Database> {
-  if (db) return db;
-  const SQL = await initSqlJs();
-  if (fs.existsSync(DB_FILE)) {
-    const filebuffer = fs.readFileSync(DB_FILE);
-    db = new SQL.Database(filebuffer);
-  } else {
-    db = new SQL.Database();
+  if (!SQL) {
+    SQL = await initSqlJs();
   }
-  initSchema(db);
-  autoLoadExampleExcel(db);
-  saveDb(db);
+  if (!db) {
+    if (fs.existsSync(DB_FILE)) {
+      const filebuffer = fs.readFileSync(DB_FILE);
+      db = new SQL.Database(filebuffer);
+    } else {
+      db = new SQL.Database();
+    }
+    initSchema(db);
+    autoLoadExampleExcel(db);
+    saveDb(db);
+  }
   return db;
 }
 
@@ -876,6 +880,78 @@ app.delete("/api/tickets/reset", async (req, res) => {
   } catch (error: any) {
     console.error("Error resetting DB:", error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 7. Download/Export full SQLite database
+app.get("/api/db/export", async (req, res) => {
+  try {
+    const sessionUser = getSessionUser(req);
+    if (!sessionUser || sessionUser.role !== 'administrator') {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador para descargar la base de datos." });
+    }
+
+    const database = await getDb();
+    const data = database.export();
+    const buffer = Buffer.from(data);
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `faveo_tickets_backup_${dateStr}.db`;
+
+    res.setHeader("Content-Type", "application/x-sqlite3");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error("Error exporting database:", err);
+    return res.status(500).json({ success: false, message: "Error al exportar la base de datos." });
+  }
+});
+
+// 8. Import/Restore full SQLite database
+app.post("/api/db/import", upload.single("db_file"), async (req, res) => {
+  try {
+    const sessionUser = getSessionUser(req);
+    if (!sessionUser || sessionUser.role !== 'administrator') {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador para importar la base de datos." });
+    }
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: "No se proporcionó ningún archivo de base de datos (.db)." });
+    }
+
+    await getDb(); // Ensure SQL engine is loaded
+    
+    try {
+      const buf = req.file.buffer;
+      const u8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      const importedDb = new SQL.Database(u8);
+
+      // Validate that it's a functioning SQLite DB
+      const testStmt = importedDb.prepare("SELECT count(*) as cnt FROM sqlite_master");
+      testStmt.step();
+      testStmt.free();
+
+      // Ensure essential schema exists
+      initSchema(importedDb);
+
+      // Swap global db
+      db = importedDb;
+      saveDb(db);
+
+      return res.json({
+        success: true,
+        message: "La base de datos se ha importado y restaurado correctamente."
+      });
+    } catch (parseErr: any) {
+      console.error("Error parsing imported DB file:", parseErr);
+      return res.status(400).json({
+        success: false,
+        message: "El archivo proporcionado no es un archivo de base de datos SQLite válido o está dañado."
+      });
+    }
+  } catch (err: any) {
+    console.error("Error importing database:", err);
+    return res.status(500).json({ success: false, message: err.message || "Error interno al importar la base de datos." });
   }
 });
 

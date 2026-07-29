@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, ShieldAlert, KeyRound, Calendar, Layers } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, ShieldAlert, KeyRound, Calendar, Layers, Download, UploadCloud, HardDrive, FileUp, X } from 'lucide-react';
 import { formatSpanishMonthName } from '../utils/dateParser';
 
 interface DataAdminModuleProps {
@@ -22,7 +22,12 @@ export const DataAdminModule: React.FC<DataAdminModuleProps> = ({
   const [confirmCode, setConfirmCode] = useState<string>('');
   const [userInputCode, setUserInputCode] = useState<string>('');
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [isImporting, setIsImporting] = useState<boolean>(false);
+  const [selectedDbFile, setSelectedDbFile] = useState<File | null>(null);
+  const [showConfirmImportModal, setShowConfirmImportModal] = useState<boolean>(false);
   
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [alertMessage, setAlertMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Generate a random 6-character code (A-Z, 0-9)
@@ -39,6 +44,107 @@ export const DataAdminModule: React.FC<DataAdminModuleProps> = ({
   useEffect(() => {
     generateRandomCode();
   }, [deleteType, selectedMonth, selectedYear]);
+
+  // Handle DB Export (Download)
+  const handleDownloadDb = async () => {
+    setIsDownloading(true);
+    setAlertMessage(null);
+    try {
+      const token = localStorage.getItem('fav_token');
+      const res = await fetch('/api/db/export', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Error al descargar la base de datos.');
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `faveo_tickets_backup_${new Date().toISOString().slice(0, 10)}.db`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setAlertMessage({
+        type: 'success',
+        text: 'Copia de seguridad de la base de datos (.db) descargada correctamente.'
+      });
+    } catch (err: any) {
+      setAlertMessage({
+        type: 'error',
+        text: err.message || 'Error de conexión al exportar la base de datos.'
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Handle DB Import Trigger
+  const handleImportDbTrigger = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDbFile) {
+      setAlertMessage({
+        type: 'error',
+        text: 'Por favor, seleccione un archivo de base de datos (.db) antes de restaurar.'
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+      return;
+    }
+
+    // Open in-app React modal for confirmation (avoids iframe confirm() issues)
+    setShowConfirmImportModal(true);
+  };
+
+  // Perform actual DB restore
+  const confirmExecuteImport = async () => {
+    if (!selectedDbFile) return;
+
+    setShowConfirmImportModal(false);
+    setIsImporting(true);
+    setAlertMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('db_file', selectedDbFile);
+
+      const token = localStorage.getItem('fav_token');
+      const res = await fetch('/api/db/import', {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setAlertMessage({
+          type: 'success',
+          text: data.message || 'Base de datos restaurada e importada correctamente.'
+        });
+        setSelectedDbFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        onDataCleared();
+      } else {
+        throw new Error(data.message || 'Error al importar la base de datos.');
+      }
+    } catch (err: any) {
+      setAlertMessage({
+        type: 'error',
+        text: err.message || 'Error de conexión al importar la base de datos.'
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const monthsList = [
     { num: 1, name: 'Enero' },
@@ -157,6 +263,121 @@ export const DataAdminModule: React.FC<DataAdminModuleProps> = ({
           <div className="text-sm font-medium">{alertMessage.text}</div>
         </div>
       )}
+
+      {/* Backup and Restore Section */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex items-center space-x-3 border-b border-slate-800 pb-4">
+          <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400">
+            <HardDrive className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">
+              Copia de Seguridad e Importación de Base de Datos
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Descargue una copia completa de su base de datos SQLite (.db) o restaure un archivo de respaldo guardado previamente.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Card 1: Export / Download DB */}
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div>
+              <div className="flex items-center space-x-2 text-blue-400 font-bold text-sm mb-2">
+                <Download className="w-4 h-4" />
+                <span>Exportar y Descargar Base de Datos</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Genera un archivo ejecutable SQLite con <strong>todos los tickets, métricas y usuarios</strong>. Guarde este archivo en su equipo como respaldo antes de realizar cambios significativos.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadDb}
+              disabled={isDownloading || externalLoading}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+            >
+              {isDownloading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Generando descarga...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  <span>Descargar Base de Datos (.db)</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Card 2: Import / Restore DB */}
+          <form onSubmit={handleImportDbTrigger} className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div>
+              <div className="flex items-center space-x-2 text-purple-400 font-bold text-sm mb-2">
+                <UploadCloud className="w-4 h-4" />
+                <span>Importar y Restaurar Base de Datos</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed mb-3">
+                Seleccione un archivo de base de datos SQLite (<strong>.db</strong>) respaldado anteriormente para reemplazar el estado del sistema.
+              </p>
+
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".db,.sqlite,.sqlite3"
+                  onChange={(e) => setSelectedDbFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-950/80 file:text-purple-300 hover:file:bg-purple-900 cursor-pointer"
+                />
+                {selectedDbFile && (
+                  <div className="mt-2 text-[11px] text-amber-300 bg-amber-950/40 border border-amber-900/50 rounded-lg p-2 flex items-center justify-between">
+                    <div className="flex items-center space-x-2 truncate">
+                      <FileUp className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="truncate">Listo: <strong>{selectedDbFile.name}</strong> ({(selectedDbFile.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDbFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      className="text-slate-400 hover:text-white ml-2 p-1"
+                      title="Quitar archivo"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isImporting || externalLoading}
+              className={`w-full py-2.5 px-4 font-semibold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                selectedDbFile
+                  ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {isImporting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Restaurando Base de Datos...</span>
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>{selectedDbFile ? 'Importar y Restaurar Base de Datos' : 'Seleccionar o Cargar Archivo .db'}</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
 
       {/* Main Admin Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
@@ -380,6 +601,68 @@ export const DataAdminModule: React.FC<DataAdminModuleProps> = ({
         </div>
 
       </div>
+
+      {/* Modal: Confirm DB Import / Restore */}
+      {showConfirmImportModal && selectedDbFile && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-white space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  Confirmar Restauración de Base de Datos
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Esta acción es irreversible y reemplazará la información activa.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-950/30 border border-amber-900/50 rounded-xl p-3.5 space-y-2 text-xs text-amber-200">
+              <p className="font-semibold flex items-center gap-1.5 text-amber-400">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span>¡ATENCIÓN! REEMPLAZO DE DATOS</span>
+              </p>
+              <p className="text-slate-300 leading-relaxed">
+                Al continuar, se <strong>sobrescribirán y reemplazarán</strong> todos los tickets, configuraciones y usuarios actuales del sistema por los contenidos en el archivo:
+              </p>
+              <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-2.5 font-mono text-[11px] text-purple-300 break-all">
+                📄 {selectedDbFile.name} ({(selectedDbFile.size / 1024).toFixed(1)} KB)
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirmImportModal(false)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmExecuteImport}
+                disabled={isImporting}
+                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-purple-600/30 cursor-pointer flex items-center space-x-2 transition-all"
+              >
+                {isImporting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Restaurando...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-4 h-4" />
+                    <span>Sí, Restaurar Base de Datos</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -25,6 +25,9 @@ export const UserManagementModule: React.FC<UserManagementModuleProps> = ({ curr
   const [selectedUserForReset, setSelectedUserForReset] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState<string>('');
 
+  // Delete User Confirmation State
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
   const fetchUsers = async () => {
     setIsLoading(true);
     setError(null);
@@ -93,13 +96,11 @@ export const UserManagementModule: React.FC<UserManagementModuleProps> = ({ curr
     }
   };
 
-  const handleDeleteUser = async (userToDelete: User) => {
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
     if (userToDelete.id === currentUser.id) {
-      alert('No puedes eliminar tu propia cuenta en sesión activa.');
-      return;
-    }
-
-    if (!confirm(`¿Está seguro de eliminar el usuario "${userToDelete.username}"? Esta acción no se puede deshacer.`)) {
+      setError('No puedes eliminar tu propia cuenta en sesión activa.');
+      setUserToDelete(null);
       return;
     }
 
@@ -117,6 +118,7 @@ export const UserManagementModule: React.FC<UserManagementModuleProps> = ({ curr
       }
 
       setSuccessMsg(`Usuario ${userToDelete.username} eliminado correctamente.`);
+      setUserToDelete(null);
       fetchUsers();
     } catch (err: any) {
       setError(err.message || 'No se pudo eliminar el usuario.');
@@ -327,7 +329,7 @@ export const UserManagementModule: React.FC<UserManagementModuleProps> = ({ curr
                         </button>
 
                         <button
-                          onClick={() => handleDeleteUser(u)}
+                          onClick={() => setUserToDelete(u)}
                           disabled={isCurrent}
                           className="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 rounded-lg text-xs transition-colors border border-slate-700 hover:border-rose-900/50 inline-flex items-center space-x-1 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                           title={isCurrent ? "No puedes eliminar tu propia cuenta activa" : "Eliminar usuario"}
@@ -478,6 +480,39 @@ export const UserManagementModule: React.FC<UserManagementModuleProps> = ({ curr
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Delete Confirmation */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-white space-y-4">
+            <h3 className="text-base font-bold text-rose-400 flex items-center space-x-2 border-b border-slate-800 pb-3">
+              <Trash2 className="w-5 h-5 text-rose-400" />
+              <span>Confirmar Eliminación</span>
+            </h3>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              ¿Está seguro de eliminar permanentemente al usuario <strong className="text-white">{userToDelete.username}</strong> ({userToDelete.name})?
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteUser}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-rose-600/30 cursor-pointer"
+              >
+                Sí, Eliminar
+              </button>
+            </div>
           </div>
         </div>
       )}

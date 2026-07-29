@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  faveo-tickets-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faveo_tickets_app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=super_secret_jwt_key_change_me_in_prod
+    volumes:
+      # Persistir la base de datos SQLite SQLite entre reinicios del contenedor
+      - ./data/tickets.db:/app/tickets.db
+    restart: unless-stopped
