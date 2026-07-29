@@ -1,0 +1,6 @@
+{
+  "name": "Gestión y Analytics de Tickets Excel",
+  "description": "Aplicación web con base de datos SQLite para carga de Excel de tickets por mes/año y dashboard interactivo con estadísticas y listados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
