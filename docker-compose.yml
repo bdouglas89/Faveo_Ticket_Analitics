@@ -15,3 +15,13 @@ services:
       - ./tickets.db:/app/tickets.db
       - ./logs:/app/logs
     restart: unless-stopped
+
+  sqlite-web:
+    image: coleifer/sqlite-web
+    container_name: faveo_sqlite_web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tickets.db:/db/tickets.db
+    command: sqlite_web -H 0.0.0.0 -p 8080 /db/tickets.db
+    restart: unless-stopped

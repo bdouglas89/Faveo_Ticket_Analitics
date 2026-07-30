@@ -85,44 +85,47 @@ docker compose version
 En la consola del contenedor LXC:
 
 ```bash
-cd /opt
-git clone https://github.com/TU_USUARIO/TU_REPOSITY.git faveo-app
-cd faveo-app
+cd /opt/faveo-tickets
+git clone https://github.com/bdouglas89/Faveo_Ticket_Analitics.git
+cd Faveo_Ticket_Analitics
 ```
 
 ### Paso 5.2: Iniciar con Docker Compose
-Ejecuta el siguiente comando para construir la imagen y levantar el servicio en segundo plano:
+Asegúrate de estar **dentro de la carpeta del proyecto** (`/opt/faveo-tickets/Faveo_Ticket_Analitics`) donde se encuentra el archivo `docker-compose.yml`, y ejecuta:
 
 ```bash
 docker compose up -d --build
 ```
 
 El archivo `docker-compose.yml` ya está preconfigurado para:
-- Mapear el puerto **3000** del contenedor al puerto **3000** de la IP del servidor.
-- Montar y persistir la base de datos SQLite limpia (`/app/tickets.db`).
-- Montar y guardar en disco los logs de errores mensuales (`/app/logs`).
+- Mapear la aplicación web en el puerto **3000** (`http://IP_SERVIDOR:3000`).
+- Mapear el cliente visor web de SQLite en el puerto **8080** (`http://IP_SERVIDOR:8080`).
+- Montar y persistir la base de datos SQLite (`./tickets.db`).
+- Montar y guardar en disco los logs de errores mensuales (`./logs`).
 
 ---
 
 ## 6. Verificación y Acceso
 
-1. Abre tu navegador e ingresa a:
-   `http://IP_DE_TU_PROXMOX_LXC:3000`
-2. Inicia sesión con la cuenta de administrador:
+1. **Aplicación Web Principal**:
+   - URL: `http://IP_DE_TU_PROXMOX_LXC:3000`
    - **Usuario**: `admin`
    - **Contraseña**: `Faveo2026*`
-3. Verifica en el menú superior la pestaña **Log de Errores** para monitorear eventos del sistema y la carga de archivos Excel.
+
+2. **Visor de Base de Datos SQLite (SQLite Web Client)**:
+   - URL: `http://IP_DE_TU_PROXMOX_LXC:8080`
+   - Permite explorar tablas (`tickets`, `users`), ejecutar consultas SQL personalizadas, exportar datos y verificar el estado interno de la base de datos en tiempo real.
 
 ---
 
 ## 7. Mantenimiento y Comandos Útiles
 
-- **Ver logs en tiempo real del contenedor:**
+- **Ver logs en tiempo real de los contenedores:**
   ```bash
   docker compose logs -f
   ```
 
-- **Reiniciar la aplicación:**
+- **Reiniciar la aplicación y el cliente SQLite:**
   ```bash
   docker compose restart
   ```
@@ -134,5 +137,5 @@ El archivo `docker-compose.yml` ya está preconfigurado para:
   ```
 
 - **Ubicación de los archivos persistentes:**
-  - Base de datos SQLite: `/opt/faveo-app/tickets.db`
-  - Logs de errores mensuales: `/opt/faveo-app/logs/error-YYYY-MM.log`
+  - Base de datos SQLite: `/opt/faveo-tickets/Faveo_Ticket_Analitics/tickets.db`
+  - Logs de errores mensuales: `/opt/faveo-tickets/Faveo_Ticket_Analitics/logs/error-YYYY-MM.log`
