@@ -9,8 +9,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - JWT_SECRET=super_secret_jwt_key_change_me_in_prod
+      - JWT_SECRET=cambiar_esta_clave_secreta_jwt_en_produccion
     volumes:
-      # Persistir la base de datos SQLite SQLite entre reinicios del contenedor
-      - ./data/tickets.db:/app/tickets.db
+      # Persistir la base de datos SQLite y los logs de errores
+      - ./tickets.db:/app/tickets.db
+      - ./logs:/app/logs
     restart: unless-stopped

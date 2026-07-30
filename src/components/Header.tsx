@@ -1,11 +1,11 @@
 import React from 'react';
-import { LayoutDashboard, UploadCloud, AlertTriangle, Table, Database, CheckCircle2, ShieldAlert, Users, LogOut, User as UserIcon, Shield, Eye } from 'lucide-react';
+import { LayoutDashboard, UploadCloud, AlertTriangle, Table, Database, CheckCircle2, ShieldAlert, Users, LogOut, User as UserIcon, Shield, Eye, FileText } from 'lucide-react';
 import { formatSpanishMonthName } from '../utils/dateParser';
 import { User, UserRole } from '../types';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users';
-  setActiveTab: (tab: 'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users') => void;
+  activeTab: 'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users' | 'logs';
+  setActiveTab: (tab: 'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users' | 'logs') => void;
   isLoading: boolean;
   ticketCount: number;
   specialCount: number;
@@ -203,6 +203,21 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Users className="w-4 h-4 text-purple-300" />
               <span>Usuarios</span>
+            </button>
+          )}
+
+          {/* Log de Errores (administrator only) */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'logs'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 font-semibold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-rose-300" />
+              <span>Log de Errores</span>
             </button>
           )}
         </div>

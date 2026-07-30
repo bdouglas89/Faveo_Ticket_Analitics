@@ -20,6 +20,52 @@ let db: Database | null = null;
 let SQL: any = null;
 const DB_FILE = path.join(process.cwd(), "tickets.db");
 
+// --- LOGGING SYSTEM ---
+const LOGS_DIR = path.join(process.cwd(), "logs");
+if (!fs.existsSync(LOGS_DIR)) {
+  try {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+  } catch (err) {
+    console.error("Error al crear carpeta /logs:", err);
+  }
+}
+
+export function logError(
+  level: 'ERROR' | 'WARN' | 'INFO' = 'ERROR',
+  scope: string = 'SERVER',
+  message: string = '',
+  details?: any,
+  username?: string
+) {
+  try {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const filename = `error-${year}-${month}.log`;
+    const filepath = path.join(LOGS_DIR, filename);
+
+    const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+    const userStr = username ? ` [USER:${username}]` : '';
+    let detailsStr = '';
+    if (details) {
+      if (typeof details === 'object') {
+        try {
+          detailsStr = ` | Details: ${JSON.stringify(details)}`;
+        } catch {
+          detailsStr = ` | Details: ${String(details)}`;
+        }
+      } else {
+        detailsStr = ` | Details: ${String(details)}`;
+      }
+    }
+
+    const logLine = `[${timestamp}] [${level}] [${scope}]${userStr} ${message}${detailsStr}\n`;
+    fs.appendFileSync(filepath, logLine, 'utf-8');
+  } catch (err) {
+    console.error("Failed to write error log line:", err);
+  }
+}
+
 function saveDb(database: Database) {
   try {
     const data = database.export();
@@ -70,21 +116,33 @@ function initSchema(database: Database) {
   `);
 
   try {
-    const userCheck = database.prepare("SELECT COUNT(*) as count FROM users WHERE username = 'bdouglas'");
-    userCheck.step();
-    const userCount = (userCheck.getAsObject().count as number) || 0;
-    userCheck.free();
+    // Remove old bdouglas user if exists
+    database.run("DELETE FROM users WHERE username = 'bdouglas'");
 
-    if (userCount === 0) {
-      const defaultHash = crypto.createHash('sha256').update('bdg123').digest('hex');
-      database.run(
-        "INSERT INTO users (username, password, name, role, created_at) VALUES (?, ?, ?, ?, ?)",
-        ['bdouglas', defaultHash, 'Bayron Douglas', 'administrator', new Date().toISOString()]
-      );
-      console.log("Seeded default administrator user 'bdouglas'");
+    const defaultUsers = [
+      { username: 'admin', rawPass: 'Faveo2026*', name: 'Administrador', role: 'administrator' },
+      { username: 'gestor', rawPass: 'Gestor2026', name: 'Gestor', role: 'gestor' },
+      { username: 'visor', rawPass: 'Visor2026', name: 'Visor', role: 'visor' }
+    ];
+
+    for (const u of defaultUsers) {
+      const userCheck = database.prepare("SELECT COUNT(*) as count FROM users WHERE username = ?");
+      userCheck.bind([u.username]);
+      userCheck.step();
+      const count = (userCheck.getAsObject().count as number) || 0;
+      userCheck.free();
+
+      if (count === 0) {
+        const passHash = crypto.createHash('sha256').update(u.rawPass).digest('hex');
+        database.run(
+          "INSERT INTO users (username, password, name, role, created_at) VALUES (?, ?, ?, ?, ?)",
+          [u.username, passHash, u.name, u.role, new Date().toISOString()]
+        );
+        console.log(`Seeded default user '${u.username}' with role '${u.role}'`);
+      }
     }
   } catch (e) {
-    console.error("Error seeding default user:", e);
+    console.error("Error seeding default users:", e);
   }
 }
 
@@ -291,7 +349,6 @@ async function getDb(): Promise<Database> {
       db = new SQL.Database();
     }
     initSchema(db);
-    autoLoadExampleExcel(db);
     saveDb(db);
   }
   return db;
@@ -345,11 +402,14 @@ app.post("/api/login", async (req, res) => {
     stmt.free();
 
     if (!user) {
+      logError('WARN', 'AUTENTICACION', `Intento de inicio de sesión fallido con usuario '${username}'`, null, username);
       return res.status(401).json({ success: false, message: "Usuario o contraseña incorrectos." });
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     activeSessions.set(token, user);
+
+    logError('INFO', 'AUTENTICACION', `Inicio de sesión exitoso`, { role: user.role }, user.username);
 
     return res.json({
       success: true,
@@ -358,6 +418,7 @@ app.post("/api/login", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Login error:", err);
+    logError('ERROR', 'AUTENTICACION', `Error interno en inicio de sesión`, err.message, req.body?.username);
     return res.status(500).json({ success: false, message: "Error interno del servidor en inicio de sesión." });
   }
 });
@@ -496,25 +557,58 @@ app.put("/api/users/:id/password", async (req, res) => {
 
 // 1. Upload Excel and Filter by Month/Year
 app.post("/api/upload-excel", upload.single("excel_file"), async (req, res) => {
+  const sessionUser = getSessionUser(req);
+  const username = sessionUser ? sessionUser.username : undefined;
+
   try {
     if (!req.file) {
+      logError("WARN", "CARGA_EXCEL", "Intento de carga sin archivo adjunto", null, username);
       return res.status(400).json({ success: false, message: "No se adjuntó ningún archivo de Excel." });
     }
 
+    const fileName = req.file.originalname || "archivo.xlsx";
+    const fileSize = req.file.size;
     const targetMonth = req.body.target_month ? parseInt(req.body.target_month, 10) : 0;
     const targetYear = req.body.target_year ? parseInt(req.body.target_year, 10) : 0;
 
-    const workbook = xlsx.read(req.file.buffer, { type: "buffer" });
+    let workbook;
+    try {
+      workbook = xlsx.read(req.file.buffer, { type: "buffer" });
+    } catch (readErr: any) {
+      logError("ERROR", "CARGA_EXCEL", `Formato de archivo Excel inválido o corrupto: ${fileName}`, {
+        fileName,
+        fileSize,
+        error: readErr.message
+      }, username);
+      return res.status(400).json({ success: false, message: "El archivo subido no es un Excel válido o está dañado." });
+    }
+
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      logError("ERROR", "CARGA_EXCEL", `El archivo Excel '${fileName}' no contiene hojas de trabajo`, { fileName, fileSize }, username);
+      return res.status(400).json({ success: false, message: "El archivo de Excel no contiene hojas de datos válidas." });
+    }
+
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
     const rawRows: Record<string, any>[] = xlsx.utils.sheet_to_json(sheet);
     if (!rawRows || rawRows.length === 0) {
+      logError("WARN", "CARGA_EXCEL", `El archivo Excel '${fileName}' está vacío o no contiene filas con datos`, { fileName, fileSize, sheetName }, username);
       return res.status(400).json({ success: false, message: "El archivo de Excel está vacío o no contiene filas con datos." });
     }
 
     const database = await getDb();
     const result = processAndInsertExcelRows(database, rawRows, targetMonth, targetYear);
+
+    logError("INFO", "CARGA_EXCEL", `Archivo '${fileName}' procesado con éxito`, {
+      fileName,
+      fileSize,
+      targetMonth,
+      targetYear,
+      totalFilas: result.totalRows,
+      importados: result.importedCount,
+      discriminados: result.discriminatedCount
+    }, username);
 
     return res.json({
       success: true,
@@ -528,15 +622,28 @@ app.post("/api/upload-excel", upload.single("excel_file"), async (req, res) => {
     });
   } catch (error: any) {
     console.error("Error uploading excel:", error);
+    const fileName = req.file ? req.file.originalname : "desconocido";
+    logError("ERROR", "CARGA_EXCEL", `Fallo crítico durante la lectura/inserción del archivo '${fileName}'`, {
+      error: error.message,
+      stack: error.stack
+    }, username);
     return res.status(500).json({ success: false, message: error.message || "Error al procesar el archivo Excel." });
   }
 });
 
 // 2. Seed Sample Data (Imports example/report.xlsx)
 app.post("/api/seed-sample-data", async (req, res) => {
+  const sessionUser = getSessionUser(req);
+  const username = sessionUser ? sessionUser.username : undefined;
+
   try {
     const database = await getDb();
     const result = loadExampleExcel(database);
+
+    logError("INFO", "CARGA_EXCEL_EJEMPLO", "Se cargó exitosamente el archivo de ejemplo (example/report.xlsx)", {
+      importados: result.importedCount,
+      totalFilas: result.totalRows
+    }, username);
 
     return res.json({
       success: true,
@@ -546,6 +653,7 @@ app.post("/api/seed-sample-data", async (req, res) => {
     });
   } catch (error: any) {
     console.error("Error seeding sample data:", error);
+    logError("ERROR", "CARGA_EXCEL_EJEMPLO", "Error al cargar archivo de ejemplo Excel", { error: error.message }, username);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -956,7 +1064,180 @@ app.post("/api/db/import", upload.single("db_file"), async (req, res) => {
     }
   } catch (err: any) {
     console.error("Error importing database:", err);
+    logError("ERROR", "DATABASE_RESTORE", "Error al importar base de datos", err.message, sessionUser?.username);
     return res.status(500).json({ success: false, message: err.message || "Error interno al importar la base de datos." });
+  }
+});
+
+// 9. LOGS MANAGEMENT (Administrator only)
+
+// List available monthly log files
+app.get("/api/admin/logs", (req, res) => {
+  try {
+    const user = getSessionUser(req);
+    if (!user || user.role !== "administrator") {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador." });
+    }
+
+    if (!fs.existsSync(LOGS_DIR)) {
+      return res.json({ success: true, files: [] });
+    }
+
+    const files = fs.readdirSync(LOGS_DIR)
+      .filter(f => f.startsWith("error-") && f.endsWith(".log"))
+      .map(filename => {
+        const filepath = path.join(LOGS_DIR, filename);
+        const stats = fs.statSync(filepath);
+        const content = fs.readFileSync(filepath, 'utf-8');
+        const lines = content.split('\n').filter(l => l.trim().length > 0);
+        
+        let errorCount = 0;
+        let warnCount = 0;
+        let infoCount = 0;
+
+        lines.forEach(line => {
+          if (line.includes("[ERROR]")) errorCount++;
+          else if (line.includes("[WARN]")) warnCount++;
+          else if (line.includes("[INFO]")) infoCount++;
+        });
+
+        const match = filename.match(/error-(\d{4})-(\d{2})\.log/);
+        const year = match ? parseInt(match[1], 10) : new Date().getFullYear();
+        const month = match ? parseInt(match[2], 10) : new Date().getMonth() + 1;
+
+        return {
+          filename,
+          year,
+          month,
+          sizeBytes: stats.size,
+          totalLines: lines.length,
+          errorCount,
+          warnCount,
+          infoCount,
+          lastModified: stats.mtime.toISOString()
+        };
+      })
+      .sort((a, b) => b.filename.localeCompare(a.filename));
+
+    return res.json({ success: true, files });
+  } catch (err: any) {
+    console.error("Error reading log files:", err);
+    logError("ERROR", "LOG_SYSTEM", "Error al listar archivos de logs", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Get content of a specific log file or download it
+app.get("/api/admin/logs/:filename", (req, res) => {
+  try {
+    const user = getSessionUser(req);
+    if (!user || user.role !== "administrator") {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador." });
+    }
+
+    const safeFilename = path.basename(req.params.filename);
+    if (!safeFilename.startsWith("error-") || !safeFilename.endsWith(".log")) {
+      return res.status(400).json({ success: false, message: "Nombre de archivo de log no válido." });
+    }
+
+    const filepath = path.join(LOGS_DIR, safeFilename);
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({ success: false, message: "El archivo de log solicitado no existe." });
+    }
+
+    if (req.query.download === "true") {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+      return res.sendFile(filepath);
+    }
+
+    const rawContent = fs.readFileSync(filepath, "utf-8");
+    const rawLines = rawContent.split("\n").filter(l => l.trim().length > 0);
+
+    const parsedEntries = rawLines.map((line, idx) => {
+      const match = line.match(/^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\](?:\s+\[USER:(.*?)\])?\s+(.*)$/);
+      if (match) {
+        return {
+          id: idx + 1,
+          timestamp: match[1],
+          level: match[2],
+          scope: match[3],
+          user: match[4] || null,
+          message: match[5],
+          raw: line
+        };
+      }
+      return {
+        id: idx + 1,
+        timestamp: '',
+        level: 'UNKNOWN',
+        scope: 'GENERAL',
+        user: null,
+        message: line,
+        raw: line
+      };
+    });
+
+    return res.json({
+      success: true,
+      filename: safeFilename,
+      rawContent,
+      entries: parsedEntries
+    });
+  } catch (err: any) {
+    logError("ERROR", "LOG_SYSTEM", `Error al leer archivo de log ${req.params.filename}`, err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Clear log content
+app.delete("/api/admin/logs/:filename", (req, res) => {
+  try {
+    const user = getSessionUser(req);
+    if (!user || user.role !== "administrator") {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador." });
+    }
+
+    const safeFilename = path.basename(req.params.filename);
+    if (!safeFilename.startsWith("error-") || !safeFilename.endsWith(".log")) {
+      return res.status(400).json({ success: false, message: "Nombre de archivo de log no válido." });
+    }
+
+    const filepath = path.join(LOGS_DIR, safeFilename);
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({ success: false, message: "El archivo de log no existe." });
+    }
+
+    const action = req.query.action || "clear";
+
+    if (action === "delete") {
+      fs.unlinkSync(filepath);
+      logError("INFO", "LOG_SYSTEM", `El archivo de log '${safeFilename}' fue eliminado por el administrador.`, null, user.username);
+      return res.json({ success: true, message: `El archivo ${safeFilename} ha sido eliminado.` });
+    } else {
+      fs.writeFileSync(filepath, "", "utf-8");
+      logError("INFO", "LOG_SYSTEM", `Log de errores reiniciado y limpiado por el administrador.`, null, user.username);
+      return res.json({ success: true, message: `Se ha limpiado el contenido de ${safeFilename}.` });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Generate a test error log entry
+app.post("/api/admin/logs/test", (req, res) => {
+  try {
+    const user = getSessionUser(req);
+    if (!user || user.role !== "administrator") {
+      return res.status(403).json({ success: false, message: "Se requieren permisos de Administrador." });
+    }
+
+    const { level = "ERROR", scope = "PRUEBA_ADMIN", message = "Prueba de evento de log generada manualmente por el administrador." } = req.body;
+    logError(level, scope, message, { timestamp: new Date().toISOString(), simulated: true }, user.username);
+
+    return res.json({ success: true, message: "Log de prueba registrado exitosamente." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 

@@ -81,3 +81,25 @@ export interface SpecialTicketsResponse {
   uncompleted_tickets: Ticket[]; // sin fecha_finalizada
   all_special_count: number;
 }
+
+export interface LogFile {
+  filename: string;
+  year: number;
+  month: number;
+  sizeBytes: number;
+  totalLines: number;
+  errorCount: number;
+  warnCount: number;
+  infoCount: number;
+  lastModified: string;
+}
+
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  level: string;
+  scope: string;
+  user: string | null;
+  message: string;
+  raw: string;
+}

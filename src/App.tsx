@@ -6,6 +6,7 @@ import { SpecialTicketsList } from './components/SpecialTicketsList';
 import { TicketTable } from './components/TicketTable';
 import { DataAdminModule } from './components/DataAdminModule';
 import { UserManagementModule } from './components/UserManagementModule';
+import { LogsViewerModule } from './components/LogsViewerModule';
 import { LoginModal } from './components/LoginModal';
 import { StatsResponse, Ticket, SpecialTicketsResponse, UploadResult, User } from './types';
 import { CheckCircle, AlertCircle } from 'lucide-react';
@@ -24,7 +25,7 @@ export default function App() {
     return localStorage.getItem('fav_token') || null;
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'upload' | 'special' | 'all' | 'admin' | 'users' | 'logs'>('dashboard');
   const [selectedMonth, setSelectedMonth] = useState<number>(4); // Default April
   const [selectedYear, setSelectedYear] = useState<number>(2026);
 
@@ -89,11 +90,11 @@ export default function App() {
     const role = currentUser.role;
 
     if (role === 'visor') {
-      if (activeTab === 'upload' || activeTab === 'admin' || activeTab === 'users') {
+      if (activeTab === 'upload' || activeTab === 'admin' || activeTab === 'users' || activeTab === 'logs') {
         setActiveTab('dashboard');
       }
     } else if (role === 'gestor') {
-      if (activeTab === 'admin' || activeTab === 'users') {
+      if (activeTab === 'admin' || activeTab === 'users' || activeTab === 'logs') {
         setActiveTab('dashboard');
       }
     }
@@ -278,6 +279,10 @@ export default function App() {
             currentUser={currentUser}
             token={token}
           />
+        )}
+
+        {activeTab === 'logs' && currentUser?.role === 'administrator' && (
+          <LogsViewerModule token={token} />
         )}
 
       </main>
