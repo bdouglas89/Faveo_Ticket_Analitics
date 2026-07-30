@@ -280,8 +280,13 @@ async function getDb(): Promise<Database> {
   }
   if (!db) {
     if (fs.existsSync(DB_FILE)) {
-      const filebuffer = fs.readFileSync(DB_FILE);
-      db = new SQL.Database(filebuffer);
+      try {
+        const filebuffer = fs.readFileSync(DB_FILE);
+        db = new SQL.Database(filebuffer);
+      } catch (err) {
+        console.error("Error cargando tickets.db (archivo corrupto o inválido), creando base de datos limpia:", err);
+        db = new SQL.Database();
+      }
     } else {
       db = new SQL.Database();
     }
